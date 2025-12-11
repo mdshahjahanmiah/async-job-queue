@@ -127,9 +127,14 @@ class JobQueue:
     async def _worker(self) -> None:
         assert self._loop is not None
         loop = self._loop
-        while self._running:
+        while True:
             run_at, _, job = await self._queue.get()
             if job is None:
+                if not self._running:
+                    await self._drain_pending_jobs()
+                    self._queue.task_done()
+                    break
+                self._queue.task_done()
                 continue
             now = loop.time()
             if run_at > now:
@@ -148,4 +153,13 @@ class JobQueue:
                     next_job = job.reschedule(loop.time())
                     count = next(self._counter)
                     self._queue.put_nowait((next_job.run_at, count, next_job))
+            self._queue.task_done()
+
+    async def _drain_pending_jobs(self) -> None:
+        """Resolve any queued jobs that will no longer be executed."""
+
+        while not self._queue.empty():
+            run_at, _, job = await self._queue.get()
+            if job is not None and not job.result.done():
+                job.result.set_exception(asyncio.CancelledError())
             self._queue.task_done()
