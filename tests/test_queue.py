@@ -2,6 +2,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -39,3 +41,21 @@ def test_recurring_job_runs_multiple_times():
         return counter
 
     assert asyncio.run(runner()) >= 3
+
+
+def test_pending_jobs_resolve_on_stop():
+    async def runner():
+        queue = JobQueue()
+        await queue.start()
+
+        async def never_runs():
+            return "done"
+
+        result = queue.schedule(never_runs, delay=10)
+
+        await queue.stop()
+
+        with pytest.raises(asyncio.CancelledError):
+            await result
+
+    asyncio.run(runner())
